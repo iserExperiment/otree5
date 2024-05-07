@@ -12,14 +12,6 @@
     </p>
 
     <ol>
-      {% if not boto3_installed %}
-        <li>
-          Run <code>pip3 install "otree[mturk]"</code>
-          and in your <code>requirements</code> file,
-          replace <code>otree>=N.N.N</code> with <code>otree[mturk]>=N.N.N</code>.
-          This will install oTree along with extra MTurk-specific packages.
-        </li>
-      {% endif %}
 
       {% if not is_usd %}
         <li>
@@ -91,5 +83,6 @@
     </form>
   {% endif %}
 
+    <br>
   {% include "otree/includes/messages.html" %}
 {% endblock %}

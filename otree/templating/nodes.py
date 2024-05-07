@@ -4,6 +4,7 @@ import logging
 import operator
 import re
 import types
+import os.path
 
 import wtforms.fields as wtfields
 from otree.chat import chat_template_tag
@@ -383,9 +384,9 @@ class IfNode(Node):
         self.condition_groups = [
             [
                 self.parse_condition(condstr)
-                for condstr in utils.splitre(or_block, (r'\s+and\s+', r'&&'))
+                for condstr in utils.splitre(or_block, (r'\s+and\s+',))
             ]
-            for or_block in utils.splitre(conditions, (r'\s+or\s+', r'\|\|'))
+            for or_block in utils.splitre(conditions, (r'\s+or\s+',))
         ]
 
     def parse_condition(self, condstr):
@@ -434,15 +435,15 @@ class IfNode(Node):
             return self.false_branch.render(context)
 
     def exit_scope(self):
-        if_nodes, elif_node, elif_nodes = self.split_children(ElifNode)
-        if elif_node:
-            self.true_branch = Node(None, if_nodes)
-            self.false_branch = IfNode(elif_node.token, elif_nodes)
+        before_elif, first_elif, after_first_elif = self.split_children(ElifNode)
+        if first_elif:
+            self.true_branch = Node(None, before_elif)
+            self.false_branch = IfNode(first_elif.token, after_first_elif)
             self.false_branch.exit_scope()
             return
-        if_nodes, _, else_nodes = self.split_children(ElseNode)
-        self.true_branch = Node(None, if_nodes)
-        self.false_branch = Node(None, else_nodes)
+        before_else, _, after_first_else = self.split_children(ElseNode)
+        self.true_branch = Node(None, before_else)
+        self.false_branch = Node(None, after_first_else)
 
 
 # Delimiter node to implement if/elif branching.
@@ -454,20 +455,20 @@ class ElifNode(Node):
 # Delimiter node to implement if/else branching.
 @register('else')
 class ElseNode(Node):
-    pass
+    def process_token(self, token):
+        # prevent people from mistakenly using {{ else if }} instead of {{ elif }}
+        content = token.text.strip()
+        if content != token.keyword:
+            msg = f"""Invalid 'else' tag: "{content}"."""
+            raise errors.TemplateSyntaxError(msg, token) from None
 
 
-# IncludeNodes include a sub-template.
-#
-#     {% include <expr> %}
-#
-# Requires a template name which can be supplied as either a string literal or a variable
-# resolving to a string. This name will be passed to the registered template loader.
-@register('include')
-class IncludeNode(Node):
+class BaseIncludeNode(Node):
+    tagname = None
+
     def process_token(self, token):
         self.variables = {}
-        parts = utils.splitre(token.text[7:], ["with"])
+        parts = utils.splitre(token.text[len(self.tagname) :], ["with"])
         if len(parts) == 1:
             self.template_arg = parts[0]
             self.template_expr = Expression(parts[0], token)
@@ -489,7 +490,7 @@ class IncludeNode(Node):
     def wrender(self, context):
         template_name = self.template_expr.eval(context)
         if isinstance(template_name, str):
-            template = ibis_loader.load(template_name)
+            template = ibis_loader.load(self.expand_template_name(template_name))
             context.push()
             for name, expr in self.variables.items():
                 context[name] = expr.eval(context)
@@ -501,6 +502,33 @@ class IncludeNode(Node):
             msg += f"The variable '{self.template_arg}' should evaluate to a string. "
             msg += f"This variable has the value: {repr(template_name)}."
             raise errors.TemplateRenderingError(msg, self.token)
+
+
+# IncludeNodes include a sub-template.
+#
+#     {% include <expr> %}
+#
+# Requires a template name which can be supplied as either a string literal or a variable
+# resolving to a string. This name will be passed to the registered template loader.
+@register('include')
+class IncludeNode(BaseIncludeNode):
+    tagname = 'include'
+
+    def expand_template_name(self, name):
+        return name
+
+
+@register('include_sibling')
+class IncludeSiblingNode(BaseIncludeNode):
+    tagname = 'include_sibling'
+
+    def expand_template_name(self, name):
+        if '/' in name:
+            raise errors.TemplateRenderingError(
+                "Argument to 'include_sibling' must be a file name with no path parts",
+                self.token,
+            )
+        return os.path.join(os.path.dirname(self.token.template_id), name)
 
 
 # ExtendNodes implement template inheritance. They indicate that the current template inherits
@@ -745,7 +773,7 @@ class BlockComment(Node):
     because that prevents parsing of its contents,
     whereas this style comment means children will get parsed,
     meaning that any incorrectly used tags will cause
-    a TemplateSyntaxError. 
+    a TemplateSyntaxError.
     """
 
     def wrender(self, context):

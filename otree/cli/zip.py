@@ -97,7 +97,7 @@ def zip_project(project_path: Path):
     # we should just overwrite the existing runtime. because maybe it has something old.
     # (e.g. if it was downloaded from otree hub)
     runtime_txt = project_path / 'runtime.txt'
-    runtime_txt.write_text(f'python-3.9.7')
+    runtime_txt.write_text(f'python-3.9.16')
     with tarfile.open(archive_name, 'w:gz') as tar:
         # if i omit arcname, it nests the project 2 levels deep.
         # if i say arcname=proj, it puts the whole project in a folder.
@@ -131,10 +131,7 @@ def fix_reqs_files(project_path: Path) -> dict:
             can_overwrite = False
 
     if can_overwrite:
-        txt = [REQS_DEFAULT, REQS_DEFAULT_MTURK][
-            'otree[mturk]' in (original_rtxt + original_rbtxt)
-        ]
-        d = {rpath.name: txt}
+        d = {rpath.name: REQS_DEFAULT}
         if rbpath.exists():
             d[rbpath.name] = REQS_BASE_DEFAULT
         return d
@@ -175,7 +172,6 @@ sentry-sdk>=0.7.9
 '''
 
 REQS_DEFAULT = _REQS_DEFAULT_FMT % ''
-REQS_DEFAULT_MTURK = _REQS_DEFAULT_FMT % '[mturk]'
 
 
 def validate_reqs_files(project_path: Path):

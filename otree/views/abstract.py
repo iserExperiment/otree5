@@ -137,6 +137,8 @@ class FormPageOrInGameWaitPage:
     @classmethod
     def get_url(cls, participant_code, name_in_url, page_index):
         '''need this because reverse() is too slow in create_session'''
+        # if i change this URL pattern, i should also change assert_correct_page()
+        # in bot.py
         return f'/p/{participant_code}/{name_in_url}/{cls.__name__}/{page_index}'
 
     @classmethod
@@ -156,7 +158,6 @@ class FormPageOrInGameWaitPage:
             subsession=self.subsession,
             session=self.session,
             participant=self.participant,
-            pax=self.participant,
             timer_text=getattr(self, 'timer_text', None),
             current_page_name=self.__class__.__name__,
             has_live_method=bool(getattr(self, 'live_method', None)),
@@ -964,14 +965,7 @@ class WaitPage(FormPageOrInGameWaitPage, GenericWaitPageMixin):
 
         participant = self.participant
 
-        if not self.request.query_params.get('reload'):
-            # on the first page load, we set _gbat_is_waiting,
-            # so that the wait page can be bypassed immediately.
-            # but apart from that, setting it should be done through JS in the wait page.
-            # if we always set _gbat_is_waiting here, then it will always mark the current player as active,
-            # even if the tab is not active, and _gbat_try_to_make_new_group is run immediately
-            # after this (see below).
-            participant._gbat_is_waiting = True
+        participant._gbat_is_connected = True
         participant._gbat_page_index = self._index_in_pages
         participant._gbat_grouped = False
         # _last_request_timestamp is already set in set_attributes,

@@ -11,7 +11,7 @@ import otree
 
 version = otree.__version__
 
-SUPPORTED_PY3_VERSIONS = [7, 8, 9, 10]
+SUPPORTED_PY3_VERSIONS = [7, 8, 9, 10, 11, 12]
 
 # make it visible so it stands out from the rest of the spew
 MSG_PY_VERSION = """
@@ -40,7 +40,6 @@ def clean_requirements(requirements_text):
 
 README = Path('README.rst').read_text('utf8')
 required = clean_requirements(Path('requirements.txt').read_text())
-required_mturk = clean_requirements(Path('requirements_mturk.txt').read_text())
 
 
 if sys.argv[-1] == 'publish':
@@ -73,10 +72,7 @@ setup(
     # not sure why. so instead i use
     # recursive-exclude in MANIFEST.in.
     packages=find_packages(),
-    description=(
-        'oTree is a toolset that makes it easy to create and '
-        'administer web-based social science experiments.'
-    ),
+    description=('Framework for multiplayer strategy games and complex surveys.'),
     long_description=README,
     url='http://otree.org/',
     author='chris@otree.org',
@@ -84,5 +80,6 @@ setup(
     install_requires=required,
     entry_points={'console_scripts': ['otree=otree.main:execute_from_command_line']},
     zip_safe=False,
-    extras_require={'mturk': required_mturk},
+    # we no longer need boto but people might still have [mturk] in their reqs files
+    extras_require={'mturk': []},
 )

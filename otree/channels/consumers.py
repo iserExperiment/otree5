@@ -2,6 +2,7 @@ import datetime
 import datetime
 import io
 import logging
+import time
 import traceback
 import urllib.parse
 from starlette.endpoints import WebSocketEndpoint
@@ -237,9 +238,14 @@ class WSGroupByArrivalTime(_OTreeAsyncJsonWebsocketConsumer):
             session_id=session_pk,
         )
 
-    def mark_gbat_is_waiting(self, is_ready):
+    def mark_gbat_is_connected(self, is_connected):
         Participant.objects_filter(id=self.participant_id).update(
-            {Participant._gbat_is_waiting: is_ready}
+            {Participant._gbat_is_connected: is_connected}
+        )
+
+    def mark_gbat_tab_hidden(self, tab_hidden):
+        Participant.objects_filter(id=self.participant_id).update(
+            {Participant._gbat_tab_hidden: tab_hidden}
         )
 
     async def post_connect(
@@ -261,16 +267,21 @@ class WSGroupByArrivalTime(_OTreeAsyncJsonWebsocketConsumer):
         else:
             if is_ready:
                 await self.websocket.send_json({'status': 'ready'})
+        # previously we were just marking connected=True in the dispatch() method
+        # of the view, and connected=False with WS disconnect.
+        # but the flaw is that WS disconnect seems to fire AFTER dispatch
+        # so add some redundancy here because i'm pretty sure connect() must run
+        # after disconnect() of the previous page load.
+        self.mark_gbat_is_connected(True)
 
     async def pre_disconnect(
         self, app_name, player_id, page_index, session_pk, participant_id
     ):
-        self.mark_gbat_is_waiting(False)
+        self.mark_gbat_is_connected(False)
 
     async def post_receive_json(self, content, **kwargs):
         if 'tab_hidden' in content:
-            is_ready = not content['tab_hidden']
-            self.mark_gbat_is_waiting(is_ready)
+            self.mark_gbat_tab_hidden(content['tab_hidden'])
 
 
 class DetectAutoAdvance(_OTreeAsyncJsonWebsocketConsumer):
@@ -635,28 +646,33 @@ class WSExportData(_OTreeAsyncJsonWebsocketConsumer):
         is_custom = content.get('is_custom')
 
         iso_date = datetime.date.today().isoformat()
-        with io.StringIO() as fp:
-            # Excel requires BOM; otherwise non-english characters are garbled
-            if content.get('for_excel'):
-                fp.write(BOM)
-            if app_name:
-                if is_custom:
-                    fxn = custom_export_app
+        try:
+            with io.StringIO() as fp:
+                # Excel requires BOM; otherwise non-english characters are garbled
+                if content.get('for_excel'):
+                    fp.write(BOM)
+                if app_name:
+                    if is_custom:
+                        fxn = custom_export_app
+                    else:
+                        fxn = export_app
+                    fxn(app_name, fp)
+                    file_name_prefix = app_name
                 else:
-                    fxn = export_app
-                fxn(app_name, fp)
-                file_name_prefix = app_name
-            else:
-                export_wide(fp)
-                file_name_prefix = 'all_apps_wide'
-            data = fp.getvalue()
-
-        file_name = f'{file_name_prefix}_{iso_date}.csv'
-
-        content.update(file_name=file_name, data=data, mime_type='text/csv')
-        # this doesn't go through channel layer, so it is probably safer
-        # in terms of sending large data
-        await self.send_json(content)
+                    export_wide(fp)
+                    file_name_prefix = 'all_apps_wide'
+                data = fp.getvalue()
+        except Exception:
+            content.update(
+                error="Error exporting data. Check the server logs for details."
+            )
+            await self.send_json(content)
+            raise
+        else:
+            file_name = f'{file_name_prefix}_{iso_date}.csv'
+            content.update(file_name=file_name, data=data, mime_type='text/csv')
+            # note, this doesn't go through channel layer currently
+            await self.send_json(content)
 
     def group_name(self, **kwargs):
         return None
